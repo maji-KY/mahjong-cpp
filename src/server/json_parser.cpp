@@ -131,6 +131,7 @@ Request create_request(const rapidjson::Value &doc)
         hand.push_back(x.GetInt());
     }
     req.player.hand = from_array(hand);
+    req.hand_tiles = hand; // 元の牌リストも保存
 
     for (const auto &meld : doc["melds"].GetArray()) {
         int meld_type = meld["type"].GetInt();
@@ -272,7 +273,78 @@ rapidjson::Value create_response(const Request &req, rapidjson::Document &doc)
         req.player.hand, req.player.num_melds(), ShantenFlag::ThirteenOrphans));
 
     if (shanten == -1) {
-        throw std::runtime_error(u8"手牌はすでに和了形です。");
+        // 和了形の場合、ScoreCalculator::calcで点数計算し、JSONで返す
+        int win_tile = 0;
+        if (!req.hand_tiles.empty()) {
+            win_tile = req.hand_tiles.back();
+        }
+        int win_flag = WinFlag::Tsumo | WinFlag::Riichi; // ツモ固定
+
+        // デバッグ用ログ出力
+        std::string hand_str;
+        for (auto t : req.player.hand) hand_str += std::to_string(t) + ",";
+        std::string melds_str;
+        for (const auto& meld : req.player.melds) {
+            melds_str += "[";
+            for (auto t : meld.tiles) melds_str += std::to_string(t) + ",";
+            melds_str += "]";
+        }
+        spdlog::info("ScoreCalculator::calc input: hand=[{}] melds=[{}] win_tile={} win_flag={} player.wind={} round.wind={}",
+            hand_str, melds_str, win_tile, win_flag, req.player.wind, req.round.wind);
+
+        auto result = ScoreCalculator::calc(req.round, req.player, win_tile, win_flag);
+        rapidjson::Value agari_val(rapidjson::kObjectType);
+        agari_val.AddMember("success", true, doc.GetAllocator());
+        agari_val.AddMember("agari", true, doc.GetAllocator());
+        // 点数
+        rapidjson::Value score_arr(rapidjson::kArrayType);
+        for (const auto& s : result.score) {
+            score_arr.PushBack(s, doc.GetAllocator());
+        }
+        agari_val.AddMember("score", score_arr, doc.GetAllocator());
+        agari_val.AddMember("han", result.han, doc.GetAllocator());
+        agari_val.AddMember("fu", result.fu, doc.GetAllocator());
+        // 役リスト
+        rapidjson::Value yaku_arr(rapidjson::kArrayType);
+        for (const auto& y : result.yaku_list) {
+            rapidjson::Value yaku_obj(rapidjson::kObjectType);
+            YakuList yaku_flag = std::get<0>(y);  // YakuListとして取得
+            int han = std::get<1>(y);
+            
+            // 役満の場合は13翻、ダブル役満の場合は26翻に変換
+            if (yaku_flag & Yaku::Yakuman) {
+                han *= 13;
+            }
+            
+            auto it = Yaku::Name.find(yaku_flag);  // YakuListで検索
+            if (it != Yaku::Name.end()) {
+                yaku_obj.AddMember("name", dump_string(it->second, doc), doc.GetAllocator());
+            } else {
+                yaku_obj.AddMember("name", dump_string(u8"不明役", doc), doc.GetAllocator());
+            }
+            yaku_obj.AddMember("han", han, doc.GetAllocator());
+            yaku_arr.PushBack(yaku_obj, doc.GetAllocator());
+        }
+        agari_val.AddMember("yaku_list", yaku_arr, doc.GetAllocator());
+        
+        // 面子構成
+        rapidjson::Value blocks_arr(rapidjson::kArrayType);
+        for (const auto& block : result.blocks) {
+            rapidjson::Value block_obj(rapidjson::kObjectType);
+            block_obj.AddMember("type", block.type, doc.GetAllocator());
+            block_obj.AddMember("min_tile", block.min_tile, doc.GetAllocator());
+            auto it = BlockType::Name.find(block.type);
+            if (it != BlockType::Name.end()) {
+                block_obj.AddMember("type_name", dump_string(it->second, doc), doc.GetAllocator());
+            } else {
+                block_obj.AddMember("type_name", dump_string(u8"不明面子", doc), doc.GetAllocator());
+            }
+            blocks_arr.PushBack(block_obj, doc.GetAllocator());
+        }
+        agari_val.AddMember("blocks", blocks_arr, doc.GetAllocator());
+        
+        // 必要に応じて他の情報も追加可能
+        return agari_val;
     }
 
     rapidjson::Value shanten_val(rapidjson::kObjectType);

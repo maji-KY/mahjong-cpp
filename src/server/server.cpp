@@ -26,6 +26,10 @@ using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
 Server server;
 
+
+
+#include <boost/asio/signal_set.hpp>
+
 Server::Server() : pool_(3)
 {
 }
@@ -296,21 +300,43 @@ int Server::run(unsigned short port)
         auto const address = net::ip::make_address("0.0.0.0");
         auto const doc_root = std::make_shared<std::string>(".");
 
-        // The io_context is required for all I/O
         net::io_context ioc{1};
-
-        // The acceptor receives incoming connections
         tcp::acceptor acceptor{ioc, {address, port}};
-        for (;;) {
-            // This will receive the new connection
-            tcp::socket socket{ioc};
 
-            // Block until we get a connection
-            acceptor.accept(socket);
+        // シグナルセットでSIGINT/SIGTERMを監視
+        boost::asio::signal_set signals(ioc, SIGINT
+#ifdef SIGTERM
+            , SIGTERM
+#endif
+        );
+        signals.async_wait([&](const boost::system::error_code&, int signo){
+            spdlog::get("logger")->info("Received signal {}. Shutting down...", signo);
+            acceptor.close();
+            ioc.stop();
+        });
 
-            // Launch the session, transferring ownership of the socket
-            std::thread{std::bind(&do_session, std::move(socket), doc_root)}.detach();
-        }
+        // 非同期acceptループ
+        std::function<void()> do_accept;
+        do_accept = [&]() {
+            acceptor.async_accept(
+                [&](boost::system::error_code ec, tcp::socket socket) {
+                    if (!ec) {
+                        std::thread{std::bind(&do_session, std::move(socket), doc_root)}.detach();
+                        do_accept(); // 次のaccept
+                    } else if (ec == boost::asio::error::operation_aborted) {
+                        // シャットダウン時
+                        spdlog::get("logger")->info("Acceptor operation aborted.");
+                    } else {
+                        spdlog::get("logger")->error("Accept error: {}", ec.message());
+                        do_accept(); // recoverable errorなら継続
+                    }
+                }
+            );
+        };
+        do_accept();
+
+        ioc.run();
+        spdlog::get("logger")->info("Server shutting down gracefully.");
     }
     catch (const std::exception &e) {
         spdlog::get("logger")->error("Error: {}", e.what());

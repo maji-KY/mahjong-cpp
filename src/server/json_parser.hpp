@@ -13,6 +13,7 @@ struct Request
     mahjong::Count wall;
     std::string ip;
     std::string version;
+    std::vector<int> hand_tiles; // 元の牌リスト
 };
 
 std::string to_json_str(rapidjson::Value &value);

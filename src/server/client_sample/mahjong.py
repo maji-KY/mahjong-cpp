@@ -28,14 +28,14 @@ def from_mpsz(s):
 
 
 def check_hand(hand):
-    if Tile.RedManzu5 in hand and Tile.Manzu5 not in hand:
-        raise ValueError("0m flag specified but 5m is not in the hand.")
+    # if Tile.RedManzu5 in hand and Tile.Manzu5 not in hand:
+    #     raise ValueError("0m flag specified but 5m is not in the hand.")
 
-    if Tile.RedPinzu5 in hand and Tile.Pinzu5 not in hand:
-        raise ValueError("0p flag specified but 5p is not in the hand.")
+    # if Tile.RedPinzu5 in hand and Tile.Pinzu5 not in hand:
+    #     raise ValueError("0p flag specified but 5p is not in the hand.")
 
-    if Tile.RedSouzu5 in hand and Tile.Souzu5 not in hand:
-        raise ValueError("0s flag specified but 5s is not in the hand.")
+    # if Tile.RedSouzu5 in hand and Tile.Souzu5 not in hand:
+    #     raise ValueError("0s flag specified but 5s is not in the hand.")
 
     if len(hand) > 14:
         raise ValueError("More than 14 tiles are used.")
