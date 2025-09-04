@@ -364,7 +364,7 @@ rapidjson::Value create_response(const Request &req, rapidjson::Document &doc)
     config.sum = std::accumulate(req.wall.begin(), req.wall.begin() + 34, 0);
     config.extra = 1;
     config.shanten_type = ShantenFlag::All;
-    config.calc_stats = shanten <= 3;
+    config.calc_stats = shanten <= 2;  // 2向聴まで期待値計算を有効にする（3向聴以上では無効）
     config.enable_reddora = req.config.enable_reddora;
     config.enable_uradora = req.config.enable_uradora;
     config.enable_shanten_down = req.config.enable_shanten_down;

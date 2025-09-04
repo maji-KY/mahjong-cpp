@@ -250,7 +250,7 @@ def analyze_hand(hand_mpsz, dora_indicator_mpsz="1z"):
         dora_indicator = from_mpsz(dora_indicator_mpsz)[0] if dora_indicator_mpsz else Tile.East
         
         print(f"手牌: {hand_mpsz}")
-        print(f"手牌: {hand_to_display(hand)}")
+        print(f"手牌Emoji: {hand_to_display(hand)}")
         print(f"ドラ表示牌: {Tile.Name[dora_indicator]} {Tile.Display[dora_indicator]}")
         
     except Exception as e:
@@ -310,7 +310,7 @@ def random_hand_calc():
     # ランダム生成した手牌を使用
     hand = from_mpsz(hand_mpsz)
     print(hand)
-    print(f"手牌: {hand_to_display(hand)}")
+    print(f"手牌Emoji: {hand_to_display(hand)}")
 
     req_data = {
         "enable_reddora": True,
@@ -383,14 +383,14 @@ def print_result(ret):
         return
     
     # ソート条件を決定
-    if shanten >= 4:
-        # 4シャンテン以上：シャンテン戻しでない打牌を有効牌総数降順でソート
+    if shanten >= 3:
+        # 3シャンテン以上：シャンテン戻しでない打牌を有効牌総数降順でソート
         # まずシャンテン戻しでない打牌のみを抽出
         non_backtrack_stats = [stat for stat in stats if stat["shanten"] <= shanten]
         sorted_stats = sorted(non_backtrack_stats, key=lambda x: sum([tile["count"] for tile in x["necessary_tiles"]]), reverse=True)
         print("=== 打牌候補（有効牌総数順） ===")
     else:
-        # 3シャンテン以下：期待値降順でソート
+        # 2シャンテン以下：期待値降順でソート
         sorted_stats = sorted(stats, key=lambda x: x["exp_score"][t_min] if ret["config"]["calc_stats"] else 0, reverse=True)
         print("=== 打牌候補（期待値順） ===")
     
@@ -438,8 +438,8 @@ def print_result(ret):
 
         return f"{s:.2f} s"
 
-    print(f"計算時間: {time_to_str(ret['time'])}")
-    print(f"探索数: {ret['searched']} 手")
+    # print(f"計算時間: {time_to_str(ret['time'])}")
+    # print(f"探索数: {ret['searched']} 手")
 
 
 def main():
