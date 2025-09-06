@@ -8,12 +8,13 @@ from const import *
 from mahjong import from_mpsz
 
 
-def create_yama(enable_reddora=True):
+def create_yama(enable_reddora=True, exclude_jihai=False):
     """
-    麻雀の山（136枚）を作成する
+    麻雀の山を作成する
     
     Args:
         enable_reddora: 赤ドラを有効にするか
+        exclude_jihai: 字牌を除外するか（True時は108枚、False時は136枚）
     
     Returns:
         list: 山の牌のリスト（Tile定数のリスト）
@@ -48,8 +49,9 @@ def create_yama(enable_reddora=True):
             yama.extend([tile] * 4)
     
     # 字牌 (27-33)
-    for tile in range(Tile.East, Tile.Red + 1):
-        yama.extend([tile] * 4)
+    if not exclude_jihai:
+        for tile in range(Tile.East, Tile.Red + 1):
+            yama.extend([tile] * 4)
     
     return yama
 
@@ -139,12 +141,13 @@ def hand_to_display(hand):
     return "".join(emoji_list)
 
 
-def generate_random_hand(enable_reddora=True):
+def generate_random_hand(enable_reddora=True, exclude_jihai=False):
     """
     ランダムな14枚の手牌とドラ表示牌を生成する
     
     Args:
         enable_reddora: 赤ドラを有効にするか
+        exclude_jihai: 字牌を除外するか
     
     Returns:
         tuple: (hand_mpsz_string, dora_indicator_tile)
@@ -152,7 +155,7 @@ def generate_random_hand(enable_reddora=True):
         - dora_indicator_tile: 山から取ったドラ表示牌（Tile定数）
     """
     # 山を作成してシャッフル
-    yama = create_yama(enable_reddora)
+    yama = create_yama(enable_reddora, exclude_jihai)
     random.shuffle(yama)
     
     # 手牌14枚を取る
@@ -209,19 +212,20 @@ def is_agari_hand(hand, dora_indicator):
         return False
 
 
-def generate_non_agari_hand(enable_reddora=True, max_retries=1):
+def generate_non_agari_hand(enable_reddora=True, exclude_jihai=False, max_retries=1):
     """
     和了形以外の手牌を生成する（最大1回まで再試行）
     
     Args:
         enable_reddora: 赤ドラを有効にするか
+        exclude_jihai: 字牌を除外するか
         max_retries: 最大再試行回数
     
     Returns:
         tuple: (hand_mpsz, dora_indicator) 和了形以外の手牌とドラ表示牌、失敗時は(None, None)
     """
     for attempt in range(max_retries + 1):
-        hand_mpsz, dora_indicator = generate_random_hand(enable_reddora)
+        hand_mpsz, dora_indicator = generate_random_hand(enable_reddora, exclude_jihai)
         hand = from_mpsz(hand_mpsz)
         
         if not is_agari_hand(hand, dora_indicator):
@@ -295,9 +299,9 @@ def analyze_hand(hand_mpsz, dora_indicator_mpsz="1z"):
         print(f"エラー: サーバーとの通信に失敗しました。({e})")
 
 
-def random_hand_calc():
+def random_hand_calc(exclude_jihai=False):
     # ランダムな手牌とドラ表示牌を生成
-    hand_mpsz, dora_indicator = generate_random_hand(enable_reddora=True)
+    hand_mpsz, dora_indicator = generate_random_hand(enable_reddora=True, exclude_jihai=exclude_jihai)
     print(f"Generated hand: {hand_mpsz}")
     print(f"Dora indicator: {Tile.Name[dora_indicator]}")
     
@@ -394,8 +398,8 @@ def print_result(ret):
         sorted_stats = sorted(stats, key=lambda x: x["exp_score"][t_min] if ret["config"]["calc_stats"] else 0, reverse=True)
         print("=== 打牌候補（期待値順） ===")
     
-    # 打牌ごとに情報を表示（上位3択のみ）
-    for i, stat in enumerate(sorted_stats[:3], 1):
+    # 打牌ごとに情報を表示（上位5択のみ）
+    for i, stat in enumerate(sorted_stats[:5], 1):
         tile_id = stat["tile"]
             
         tile = Tile.Name[tile_id]
@@ -469,11 +473,17 @@ def main():
         help='ドラ表示牌（MPSZ形式、デフォルト: 1z=東）'
     )
     
+    parser.add_argument(
+        '--no-jihai',
+        action='store_true',
+        help='字牌を除外して手牌を生成する（数牌のみ）'
+    )
+    
     args = parser.parse_args()
     
     if args.generate:
         # 生成モード: 和了形以外の手牌を生成
-        result = generate_non_agari_hand(enable_reddora=True, max_retries=1)
+        result = generate_non_agari_hand(enable_reddora=True, exclude_jihai=args.no_jihai, max_retries=1)
         if result[0]:  # hand_mpsz が None でない場合
             hand_mpsz, dora_indicator = result
             print(f"生成された手牌: {hand_mpsz}")
@@ -491,7 +501,9 @@ def main():
     else:
         # デフォルトモード: 既存の動作（ランダム生成+分析）
         print("=== ランダム手牌生成+分析モード ===")
-        random_hand_calc()
+        if args.no_jihai:
+            print("※ 字牌を除外してランダム生成します")
+        random_hand_calc(exclude_jihai=args.no_jihai)
 
 
 if __name__ == "__main__":
