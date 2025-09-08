@@ -170,16 +170,18 @@ def generate_random_hand(enable_reddora=True, exclude_jihai=False):
     return hand_mpsz, dora_indicator
 
 
-def is_agari_hand(hand, dora_indicator):
+def check_hand_status(hand, dora_indicator):
     """
-    手牌が和了形かどうかをサーバーに問い合わせてチェックする
+    手牌の状態（和了形かどうか、シャンテン数）をサーバーに問い合わせて取得する
     
     Args:
         hand: 手牌のリスト（Tile定数のリスト）
         dora_indicator: ドラ表示牌
     
     Returns:
-        bool: 和了形の場合True、そうでなければFalse
+        tuple: (is_agari, shanten_number)
+        - is_agari: 和了形かどうか (bool)
+        - shanten_number: シャンテン数 (int、和了形の場合は-1、エラー時は-2)
     """
     req_data = {
         "enable_reddora": True,
@@ -204,39 +206,64 @@ def is_agari_hand(hand, dora_indicator):
         res_data = res.json()
         
         if not res_data["success"]:
-            return False
+            return False, -2
             
         result = res_data["response"]
-        return result.get("agari", False)
+        is_agari = result.get("agari", False)
+        if is_agari:
+            return True, -1
+        else:
+            return False, result["shanten"]["all"]
     except:
-        return False
+        return False, -2
 
 
-def generate_non_agari_hand(enable_reddora=True, exclude_jihai=False, max_retries=1):
+def generate_non_agari_hand(enable_reddora=True, exclude_jihai=False, max_retries=1, low_shanten=False):
     """
-    和了形以外の手牌を生成する（最大1回まで再試行）
+    和了形以外の手牌を生成する
     
     Args:
         enable_reddora: 赤ドラを有効にするか
         exclude_jihai: 字牌を除外するか
         max_retries: 最大再試行回数
+        low_shanten: 2シャンテン以下の手牌のみ生成するか
     
     Returns:
-        tuple: (hand_mpsz, dora_indicator) 和了形以外の手牌とドラ表示牌、失敗時は(None, None)
+        tuple: (hand_mpsz, dora_indicator, shanten) 手牌とドラ表示牌とシャンテン数、失敗時は(None, None, -1)
     """
-    for attempt in range(max_retries + 1):
+    # 低シャンテン指定時は試行回数を増やす
+    actual_max_retries = max_retries * 20 if low_shanten else max_retries
+    
+    for attempt in range(actual_max_retries + 1):
         hand_mpsz, dora_indicator = generate_random_hand(enable_reddora, exclude_jihai)
         hand = from_mpsz(hand_mpsz)
         
-        if not is_agari_hand(hand, dora_indicator):
-            return hand_mpsz, dora_indicator
+        # 手牌の状態をチェック（和了形かどうかとシャンテン数を一度に取得）
+        is_agari, shanten = check_hand_status(hand, dora_indicator)
         
-        if attempt < max_retries:
-            print(f"和了形が生成されました。再生成します... (試行{attempt + 1}/{max_retries + 1})")
+        # エラーの場合は再試行
+        if shanten == -2:  # エラー
+            continue
+            
+        # 和了形の場合は再試行
+        if is_agari:
+            continue
+        
+        # 低シャンテン指定時は2シャンテン以下のみ受け入れ
+        if low_shanten:
+            if shanten <= 2:
+                return hand_mpsz, dora_indicator, shanten
+            # 2シャンテンより大きい場合は再試行
+            continue
+        else:
+            # 低シャンテン指定でない場合は和了形でなければOK
+            return hand_mpsz, dora_indicator, shanten
     
-    # 最大試行回数に達した場合、最後に生成された手牌を返す（和了形でも）
-    print("警告: 最大試行回数に達しました。和了形の可能性がある手牌を返します。")
-    return hand_mpsz, dora_indicator
+    # 最大試行回数に達した場合
+    if low_shanten:
+        return None, None, -1
+    else:
+        return hand_mpsz, dora_indicator, shanten
 
 
 def analyze_hand(hand_mpsz, dora_indicator_mpsz="1z"):
@@ -302,19 +329,14 @@ def analyze_hand(hand_mpsz, dora_indicator_mpsz="1z"):
 def random_hand_calc(exclude_jihai=False):
     # ランダムな手牌とドラ表示牌を生成
     hand_mpsz, dora_indicator = generate_random_hand(enable_reddora=True, exclude_jihai=exclude_jihai)
-    print(f"Generated hand: {hand_mpsz}")
-    print(f"Dora indicator: {Tile.Name[dora_indicator]}")
-    
-    # 例: 222567m34p33667s北（固定手牌を使いたい場合）
-    # hand = from_mpsz("222567m34p33667s4z")
-    
-    # 13枚手牌でエラーハンドリングをテスト
-    # hand = from_mpsz("147m258p369s1234z")  # 13枚の手牌
     
     # ランダム生成した手牌を使用
     hand = from_mpsz(hand_mpsz)
-    print(hand)
+    
+    # 手牌情報を表示
+    print(f"手牌: {hand_mpsz}")
     print(f"手牌Emoji: {hand_to_display(hand)}")
+    print(f"ドラ表示牌: {Tile.Name[dora_indicator]} {Tile.Display[dora_indicator]}")
 
     req_data = {
         "enable_reddora": True,
@@ -479,20 +501,31 @@ def main():
         help='字牌を除外して手牌を生成する（数牌のみ）'
     )
     
+    parser.add_argument(
+        '--low-shanten',
+        action='store_true',
+        help='2シャンテン以下の手牌のみ生成する（生成モード時のみ有効）'
+    )
+    
     args = parser.parse_args()
     
     if args.generate:
         # 生成モード: 和了形以外の手牌を生成
-        result = generate_non_agari_hand(enable_reddora=True, exclude_jihai=args.no_jihai, max_retries=1)
-        if result[0]:  # hand_mpsz が None でない場合
-            hand_mpsz, dora_indicator = result
+        result = generate_non_agari_hand(
+            enable_reddora=True, 
+            exclude_jihai=args.no_jihai, 
+            max_retries=1,
+            low_shanten=args.low_shanten
+        )
+        
+        hand_mpsz, dora_indicator, shanten = result
+        if hand_mpsz:  # hand_mpsz が None でない場合
             print(f"生成された手牌: {hand_mpsz}")
             print(f"ドラ表示牌: {Tile.Name[dora_indicator]} {Tile.Display[dora_indicator]}")
-            # emoji表示も追加
             hand = from_mpsz(hand_mpsz)
             print(f"手牌Emoji: {hand_to_display(hand)}")
         else:
-            print("エラー: 和了形以外の手牌の生成に失敗しました。")
+            print("エラー: 手牌の生成に失敗しました。")
             
     elif args.analyze:
         # 分析モード: 指定された手牌を分析
@@ -500,9 +533,6 @@ def main():
         
     else:
         # デフォルトモード: 既存の動作（ランダム生成+分析）
-        print("=== ランダム手牌生成+分析モード ===")
-        if args.no_jihai:
-            print("※ 字牌を除外してランダム生成します")
         random_hand_calc(exclude_jihai=args.no_jihai)
 
 
